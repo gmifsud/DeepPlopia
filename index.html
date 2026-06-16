@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dichoptic Therapy: Space Game</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main class="main-container">
+      <div class="stellar-grid"></div>
+      
+      <div class="canvas-wrapper">
+        <div class="canvas-header">
+          <div class="header-line"></div>
+          <span class="header-title">Stereoscopic Therapy View</span>
+          <div class="header-line"></div>
+        </div>
+
+        <!-- 
+          Canvas sized to a standard aspect ratio. 
+          Aria labels added for accessibility 
+        -->
+        <canvas id="gameCanvas" width="800" height="600" aria-label="Game Canvas for Vision Therapy" role="application"></canvas>
+        
+        <!-- 
+          Placeholder for relaxing space music. 
+          The path will be set in game.js 
+        -->
+        <audio id="spaceMusic" loop preload="auto"></audio>
+      </div>
+    </main>
+    <script type="module" src="/game.js"></script>
+  </body>
+</html>
+

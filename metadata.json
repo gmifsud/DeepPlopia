@@ -1,0 +1,6 @@
+{
+  "name": "Dichoptic Vision Therapy",
+  "description": "A browser-based game using Red/Cyan anaglyph formatting for diplopia/amblyopia dichoptic training.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
