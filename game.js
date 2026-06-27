@@ -26,6 +26,28 @@ let lastTime = 0;
 const keys = { left: false, right: false };
 
 // ---------------------------------------------------------
+// SETTINGS & PROGRESSION STATE
+// ---------------------------------------------------------
+let isStateB = false; // false = Ship Red / Ast Cyan. true = inverted.
+let redAlpha = 1.0;
+let cyanAlpha = 1.0;
+
+let sessionTimeMS = 0;
+let highScore = 0;
+let bestContrastRatio = "1.0 : 1.0";
+
+// DOM Elements
+const toggleBtn = document.getElementById('toggleEyeSwap');
+const sliderRed = document.getElementById('redOpacity');
+const sliderCyan = document.getElementById('cyanOpacity');
+const valRed = document.getElementById('redOpacityVal');
+const valCyan = document.getElementById('cyanOpacityVal');
+
+const elHighScore = document.getElementById('highScore');
+const elContrastRatio = document.getElementById('contrastRatio');
+const elSessionTime = document.getElementById('sessionTime');
+
+// ---------------------------------------------------------
 // ENTITIES
 // ---------------------------------------------------------
 const player = {
@@ -33,8 +55,7 @@ const player = {
     y: canvas.height - 50,
     width: 40,
     height: 40,
-    speed: 0.15, // Relaxed speed
-    color: COLOR_RIGHT_EYE // Right eye (Cyan lens)
+    speed: 0.15 // Relaxed speed
 };
 
 const asteroids = [];
@@ -44,40 +65,168 @@ const ASTEROID_SPAWN_INTERVAL = 3000; // Very infrequent spawns for calm pacing
 let score = 0;
 
 // Audio state
-let musicInitialized = false;
+class AudioEngine {
+    constructor() {
+        this.ctx = null;
+        this.isInitialized = false;
+        this.masterGain = null;
+    }
+
+    init() {
+        if (this.isInitialized) return;
+        
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioContext();
+        
+        // Master gain
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = 0.4; // Relaxed overall volume
+        
+        // Lowpass filter to keep it warm and non-fatiguing
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 400; // Warm frequencies
+        filter.Q.value = 1;
+        
+        this.masterGain.connect(filter);
+        filter.connect(this.ctx.destination);
+
+        // Relaxing chord (C minor 9 / Open fifth variant: C3, G3, D4, Eb4)
+        const frequencies = [130.81, 196.00, 293.66, 311.13];
+        
+        frequencies.forEach((freq, index) => {
+            // Main oscillator for the note
+            const osc = this.ctx.createOscillator();
+            osc.type = index % 2 === 0 ? 'sine' : 'triangle';
+            osc.frequency.value = freq;
+            
+            // Gain node to control this specific oscillator's volume
+            const oscGain = this.ctx.createGain();
+            // Base volume for this oscillator
+            oscGain.gain.value = 0.15; 
+            
+            // LFO to modulate the gain for a breathing/swell effect
+            const lfo = this.ctx.createOscillator();
+            lfo.type = 'sine';
+            // Very slow, asynchronous LFOs (0.02 to 0.08 Hz)
+            lfo.frequency.value = 0.02 + (Math.random() * 0.06);
+            
+            // LFO controls the gain variation
+            const lfoGain = this.ctx.createGain();
+            lfoGain.gain.value = 0.1; // Amount of swell variation
+            
+            lfo.connect(lfoGain);
+            lfoGain.connect(oscGain.gain);
+            
+            osc.connect(oscGain);
+            oscGain.connect(this.masterGain);
+            
+            osc.start();
+            lfo.start();
+        });
+
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+        
+        this.isInitialized = true;
+    }
+}
+
+const audio = new AudioEngine();
 
 /**
- * Initializes the relaxing space music.
- * User interaction is required by browsers to start audio playback.
+ * Loads progression and config from local storage
  */
-function initializeSpaceMusic() {
-    if (musicInitialized) return;
+function loadProgression() {
+    highScore = parseInt(localStorage.getItem('dichoptic_highScore')) || 0;
+    sessionTimeMS = parseInt(localStorage.getItem('dichoptic_sessionTime')) || 0;
+    bestContrastRatio = localStorage.getItem('dichoptic_bestContrast') || "1.0 : 1.0";
     
-    const bgAudio = document.getElementById('spaceMusic');
-    // =========================================================================
-    // AUDIO PLACEHOLDER
-    // Replace the src below with the local path or URL to your relaxing music.
-    // Example: bgAudio.src = './assets/relaxing_music.mp3';
-    // =========================================================================
-    bgAudio.src = 'path/to/my/relaxing_music.mp3'; 
-    bgAudio.volume = 0.4;
-    bgAudio.play().then(() => {
-        musicInitialized = true;
-    }).catch(error => {
-        console.log("Audio play failed pending user interaction.", error);
-    });
+    const savedRed = localStorage.getItem('dichoptic_redAlpha');
+    if (savedRed !== null) redAlpha = parseFloat(savedRed);
+    const savedCyan = localStorage.getItem('dichoptic_cyanAlpha');
+    if (savedCyan !== null) cyanAlpha = parseFloat(savedCyan);
+    
+    const savedSwap = localStorage.getItem('dichoptic_isStateB');
+    if (savedSwap !== null) isStateB = savedSwap === 'true';
+
+    // update DOM
+    sliderRed.value = redAlpha;
+    valRed.innerText = redAlpha.toFixed(2);
+    sliderCyan.value = cyanAlpha;
+    valCyan.innerText = cyanAlpha.toFixed(2);
+    toggleBtn.innerText = isStateB ? "State B: Ship (Cyan) / Ast (Red)" : "State A: Ship (Red) / Ast (Cyan)";
+    
+    updateProgressionUI();
+}
+
+/**
+ * Saves progression and config to local storage
+ */
+function saveProgression() {
+    localStorage.setItem('dichoptic_highScore', highScore);
+    localStorage.setItem('dichoptic_sessionTime', sessionTimeMS);
+    localStorage.setItem('dichoptic_bestContrast', bestContrastRatio);
+    localStorage.setItem('dichoptic_redAlpha', redAlpha);
+    localStorage.setItem('dichoptic_cyanAlpha', cyanAlpha);
+    localStorage.setItem('dichoptic_isStateB', isStateB);
+}
+
+/**
+ * Updates the progression UI text elements
+ */
+function updateProgressionUI() {
+    elHighScore.innerText = highScore;
+    elContrastRatio.innerText = bestContrastRatio;
+    
+    const totalSeconds = Math.floor(sessionTimeMS / 1000);
+    const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+    const s = (totalSeconds % 60).toString().padStart(2, '0');
+    elSessionTime.innerText = `${m}:${s}`;
 }
 
 /**
  * Initializes the game and starts the loop.
  */
 function init() {
-    // Add interaction listener for audio
-    window.addEventListener('click', initializeSpaceMusic);
-    window.addEventListener('keydown', (e) => {
-        // Initialize music on first key press too
-        initializeSpaceMusic();
+    loadProgression();
+
+    // UI Listeners
+    toggleBtn.addEventListener('click', () => {
+        isStateB = !isStateB;
+        toggleBtn.innerText = isStateB ? "State B: Ship (Cyan) / Ast (Red)" : "State A: Ship (Red) / Ast (Cyan)";
+        saveProgression();
+    });
+
+    sliderRed.addEventListener('input', (e) => {
+        redAlpha = parseFloat(e.target.value);
+        valRed.innerText = redAlpha.toFixed(2);
+        saveProgression();
+    });
+
+    sliderCyan.addEventListener('input', (e) => {
+        cyanAlpha = parseFloat(e.target.value);
+        valCyan.innerText = cyanAlpha.toFixed(2);
+        saveProgression();
+    });
+
+    const btnStart = document.getElementById('btnStart');
+    const overlay = document.getElementById('startOverlay');
+
+    btnStart.addEventListener('click', () => {
+        audio.init();
+        overlay.classList.add('hidden');
         
+        // Start game loop if not already running
+        if (!gameLoopRunning) {
+            gameLoopRunning = true;
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+    });
+
+    window.addEventListener('keydown', (e) => {
         const key = e.key;
         if (key === 'a' || key === 'A' || key === 'ArrowLeft') keys.left = true;
         if (key === 'd' || key === 'D' || key === 'ArrowRight') keys.right = true;
@@ -89,8 +238,11 @@ function init() {
         if (key === 'd' || key === 'D' || key === 'ArrowRight') keys.right = false;
     });
 
-    requestAnimationFrame(gameLoop);
+    // We do NOT call requestAnimationFrame here.
+    // It's tied to the Start Game button.
 }
+
+let gameLoopRunning = false;
 
 /**
  * Main Game Loop (requestAnimationFrame)
@@ -152,8 +304,7 @@ function update(deltaTime) {
             x: Math.random() * (canvas.width - 60) + 30, // Random X within canvas
             y: -30,
             radius: 15 + Math.random() * 10, // Slightly smaller asteroids
-            speed: 0.03 + Math.random() * 0.03, // Very slow descent
-            color: COLOR_LEFT_EYE // Left eye (Red lens)
+            speed: 0.03 + Math.random() * 0.03 // Very slow descent
         });
     }
 
@@ -166,6 +317,14 @@ function update(deltaTime) {
         if (checkCollision(ast, player)) {
             // Collision occurred!
             score++;
+            
+            if (score > highScore) {
+                highScore = score;
+                bestContrastRatio = `${redAlpha.toFixed(1)} : ${cyanAlpha.toFixed(1)}`;
+                saveProgression();
+            }
+            updateProgressionUI();
+
             asteroids.splice(i, 1);
             continue; // Skip the off-screen check since it was removed
         }
@@ -173,6 +332,18 @@ function update(deltaTime) {
         // Clean up asteroids that move off-screen
         if (ast.y - ast.radius > canvas.height) {
             asteroids.splice(i, 1);
+        }
+    }
+
+    // Update Session Time
+    const oldSec = Math.floor(sessionTimeMS / 1000);
+    sessionTimeMS += deltaTime;
+    const newSec = Math.floor(sessionTimeMS / 1000);
+    
+    if (newSec > oldSec) {
+        updateProgressionUI();
+        if (newSec % 5 === 0) {
+            saveProgression(); // Save periodically
         }
     }
 }
@@ -191,16 +362,22 @@ function draw() {
     // Draw the binocular fusion anchor layer
     drawStellarGrid();
 
-    // Draw Asteroids (Left Eye - Cyan)
+    // Determine colors based on Eye Target Swap state
+    const astColor = isStateB ? COLOR_RIGHT_EYE : COLOR_LEFT_EYE;
+    const pColor = isStateB ? COLOR_LEFT_EYE : COLOR_RIGHT_EYE;
+
+    // Draw Asteroids
+    ctx.globalAlpha = astColor === COLOR_RIGHT_EYE ? redAlpha : cyanAlpha;
+    ctx.fillStyle = astColor;
     asteroids.forEach(ast => {
-        ctx.fillStyle = ast.color;
         ctx.beginPath();
         ctx.arc(ast.x, ast.y, ast.radius, 0, Math.PI * 2);
         ctx.fill();
     });
 
-    // Draw Player Spaceship (Right Eye - Red)
-    ctx.fillStyle = player.color;
+    // Draw Player Spaceship
+    ctx.globalAlpha = pColor === COLOR_RIGHT_EYE ? redAlpha : cyanAlpha;
+    ctx.fillStyle = pColor;
     ctx.beginPath();
     ctx.moveTo(player.x, player.y - player.height / 2); // Nose
     ctx.lineTo(player.x + player.width / 2, player.y + player.height / 2); // Right wing
@@ -208,6 +385,9 @@ function draw() {
     ctx.lineTo(player.x - player.width / 2, player.y + player.height / 2); // Left wing
     ctx.closePath();
     ctx.fill();
+
+    // Reset alpha
+    ctx.globalAlpha = 1.0;
 
     // Draw Score (Both Eyes Anchor - White/Gray)
     ctx.fillStyle = '#FFFFFF';
